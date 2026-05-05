@@ -103,7 +103,7 @@ def iter_pages(path):
 
 
 def split_categories_and_body(body):
-    # Separate category words from the body when the dump uses a CATEGORIES: line
+    # splits out category tags from the body text if the dump has a CATEGORIES: line
     categories = []
     body_lines = []
 
@@ -116,3 +116,84 @@ def split_categories_and_body(body):
     return " ".join(categories), "\n".join(body_lines)
 
 
+def create_schema():
+    analyzer = StemmingAnalyzer()
+    return Schema(
+        title=ID(stored=True, unique=True),
+        title_text=TEXT(stored=False, analyzer=analyzer, field_boost=3.0),
+        categories=TEXT(stored=False, analyzer=analyzer, field_boost=2.0),
+        content=TEXT(stored=False, analyzer=analyzer),
+    )
+
+
+def build_index(wiki_path, index_dir, recreate=True):
+    # Builds a BM25F Whoosh index, one document for each Wikipedia page
+    index_dir = Path(index_dir)
+
+    if recreate and index_dir.exists():
+        shutil.rmtree(index_dir)
+    index_dir.mkdir(parents=True, exist_ok=True)
+
+    schema = create_schema()
+    ix = index.create_in(index_dir, schema)
+    writer = ix.writer(limitmb=512, procs=1)
+
+    count = 0
+    redirect_count = 0
+
+    for title, raw_body in iter_pages(wiki_path):
+        categories, body = split_categories_and_body(raw_body)
+        body = clean_wiki_text(body)
+        categories = clean_wiki_text(categories)
+
+        redirect_match = REDIRECT_RE.match(body.strip())
+        if redirect_match:
+            redirect_count += 1
+            body = clean_wiki_text(redirect_match.group(1))
+
+        writer.update_document(
+            title=title,
+            title_text=title,
+            categories=categories,
+            content=body,
+        )
+        count += 1
+
+        if count % 10000 == 0:
+            print(f"Indexed {count:,} pages...")
+
+    writer.commit()
+    print(f"Done. Indexed {count:,} pages. Redirect-like pages handled: {redirect_count:,}.")
+
+
+def read_questions(path):
+    # Parses the questions file, expecting 4-line blocks per question
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [line.rstrip("\n") for line in f]
+
+    questions = []
+    i = 0
+    while i + 2 < len(lines):
+        category = lines[i].strip()
+        clue = lines[i + 1].strip()
+        answer = lines[i + 2].strip()
+
+        if category and clue and answer:
+            questions.append({
+                "category": category,
+                "clue": clue,
+                "answer": answer,
+                "answer_variants": [a.strip() for a in answer.split("|")],
+            })
+        i += 4
+
+    return questions
+
+
+def clean_query_text(text):
+    # Strips out punctuation noise and keeps the useful words from clues and categories
+    text = text.replace("&", " and ")
+    text = re.sub(r"[\"“”‘’]", " ", text)
+    text = re.sub(r"[^A-Za-z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
