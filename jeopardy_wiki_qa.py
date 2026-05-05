@@ -182,3 +182,98 @@ def clean_query_text(text):
     text = re.sub(r"[^A-Za-z0-9]+", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+# Method: build_query
+# Purpose: This method creates query text for one Jepoardy Clue.
+# Parameters:
+#   category: The Jeopardy category text
+#   clue: Clue to serarch for
+#   use_category: Boolean if we want to append category words to the clue query
+# Returns: A cleaned query string 
+def build_query(category, clue, use_category=True):
+
+    # get the texts
+    clue_text = clean_query_text(clue)
+    category_text = clean_query_text(category)
+
+    if use_category and category_text:
+        return f"{clue_text} {category_text}"
+    return clue_text
+
+
+# Method: search_one
+# Purpose: Searches the index for the best Wikipedia 
+#          pages for a given clue
+# Parameters:
+#   ix: The index.
+#   category: The Jeopardy category text
+#   clue: The clue text to search for
+#   top_k: The maximum number of ranked results to return
+#   use_category: Whether to include category text in the query
+# Returns: A list of page title, score tuples ordered by the relevance
+def search_one(ix, category, clue, top_k=10, use_category=True):
+    query_text = build_query(category, clue, use_category=use_category)
+
+    # Search all useful fields
+    parser = MultifieldParser(
+        ["title_text", "categories", "content"],
+        schema=ix.schema,
+        group=OrGroup.factory(0.9),
+    )
+    query = parser.parse(query_text)
+
+    with ix.searcher(weighting=BM25F()) as searcher:
+        # Getting the top matching pages from the index
+        hits = searcher.search(query, limit=top_k)
+        results = []
+        # store results 
+        for hit in hits:
+            results.append((hit["title"], float(hit.score)))
+        return results
+
+
+# Method: reciprocal_rank
+# Purpose: Scores a ranked result list 
+#           based on where the correct answer appears
+# Parameters:
+#   results: Ranked (page title, score) tuples returned by search_one method
+#   answer_variants: Acceptable answer strings for the clue
+# Returns: the reciprocal rank, 
+#            or 0.0 if not found.
+def reciprocal_rank(results, answer_variants):
+    normalized_answers = set()
+    # normalization step
+    # and adding it to the set
+    for ans in answer_variants:
+        normalized_answers.add(normalize_answer(ans))
+
+    # checking results in ranked order
+    for rank, (title, _) in enumerate(results, start=1):
+        if normalize_answer(title) in normalized_answers:
+            return 1.0 / rank
+    return 0.0
+
+
+# Method: is_correct_at_1
+# Purpose: Checks whether the top ranked 
+#           result exactly matches an accepted answer
+# Parameters:
+#   results: Ranked (page title, score) tuples returned by the search_one method
+#   answer_variants: Acceptable answer strings for the clue.
+# Returns: True if the first result is correct, otherwise False.
+def is_correct_at_1(results, answer_variants):
+    if not results:
+        return False
+    
+    normalized_answers = set()
+    # normalization step
+    for ans in answer_variants:
+        normalized_answers.add(normalize_answer(ans))
+    # get first ranked result
+    top_result = results[0]
+    # get page title
+    top_title = top_result[0]
+    # normalize the top page
+    normalized_top_title = normalize_answer(top_title)
+    return normalized_top_title in normalized_answers
