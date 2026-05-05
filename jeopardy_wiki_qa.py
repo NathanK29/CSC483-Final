@@ -127,7 +127,7 @@ def create_schema():
 
 
 def build_index(wiki_path, index_dir, recreate=True):
-    # Create a Whoosh BM25F index with one document per Wikipedia page
+    # Builds a BM25F Whoosh index, one document for each Wikipedia page
     index_dir = Path(index_dir)
 
     if recreate and index_dir.exists():
@@ -167,7 +167,7 @@ def build_index(wiki_path, index_dir, recreate=True):
 
 
 def read_questions(path):
-    # Read 4-line Jeopardy question blocks
+    # Parses the questions file, expecting 4-line blocks per question
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         lines = [line.rstrip("\n") for line in f]
 
@@ -191,7 +191,7 @@ def read_questions(path):
 
 
 def clean_query_text(text):
-    # Keep meaningful clue/category words and remove Jeopardy punctuation noise
+    # Strips out punctuation noise and keeps the useful words from clues and categories
     text = text.replace("&", " and ")
     text = re.sub(r"[\"“”‘’]", " ", text)
     text = re.sub(r"[^A-Za-z0-9]+", " ", text)
