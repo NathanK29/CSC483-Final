@@ -100,4 +100,19 @@ def iter_pages(path):
 
     if title is not None:
         yield title, "\n".join(body_lines)
-        
+
+
+def split_categories_and_body(body):
+    # Separate category words from the body when the dump uses a CATEGORIES: line
+    categories = []
+    body_lines = []
+
+    for line in body.splitlines():
+        if line.startswith("CATEGORIES:"):
+            categories.append(line.replace("CATEGORIES:", " "))
+        else:
+            body_lines.append(line)
+
+    return " ".join(categories), "\n".join(body_lines)
+
+
