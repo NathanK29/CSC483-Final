@@ -1,16 +1,7 @@
 """
-jeopardy_wiki_qa.py
+FileName: jeopardy_wiki_qa.py
 Authors: Abderrahman Didan, Ali Kaddourra, Andrew Little, Jaden Gee, Nathan Kumar
 Purpose: Build a Wikipedia page retrieval system for Jeopardy clues using Whoosh.
-
-Input files:
-  questions.txt: 4 lines per question: CATEGORY, CLUE, ANSWER, blank line
-  wiki folder/file: Wikipedia pages where each page starts with [[Title]]
-
-Example commands you can use:
-  pip install whoosh
-  python jeopardy_wiki_qa.py index --wiki wiki-data-folder --index indexdir
-  python jeopardy_wiki_qa.py evaluate --questions questions.txt --index indexdir --out results.csv     (A.D come back later and touch this up + give clearer instructions on commands)
 """
 
 import argparse
@@ -19,19 +10,13 @@ import os
 import re
 import shutil
 from pathlib import Path
+from whoosh import index
+from whoosh.analysis import StemmingAnalyzer
+from whoosh.fields import ID, TEXT, Schema
+from whoosh.qparser import MultifieldParser, OrGroup
+from whoosh.scoring import BM25F
 
-try:
-    from whoosh import index
-    from whoosh.analysis import StemmingAnalyzer
-    from whoosh.fields import ID, TEXT, Schema
-    from whoosh.qparser import MultifieldParser, OrGroup
-    from whoosh.scoring import BM25F
-except ImportError:
-    raise SystemExit(
-        "Whoosh is required. Install it with: pip install whoosh"
-    )
-
-
+#globals
 TITLE_RE = re.compile(r"^\[\[(.*?)\]\]\s*$")
 REDIRECT_RE = re.compile(r"^#REDIRECT\s+(.+)$", re.IGNORECASE)
 TPL_RE = re.compile(r"\[tpl\].*?\[/tpl\]", re.DOTALL | re.IGNORECASE)
