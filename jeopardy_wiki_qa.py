@@ -1,6 +1,6 @@
 """
 FileName: jeopardy_wiki_qa.py
-Authors: Abderrahman Didan, Ali Kaddourra, Andrew Little, Jaden Gee, Nathan Kumar
+Authors: Abderrahman Didan, Ali Kaddoura, Andrew Little, Jaden Gee, Nathan Kumar
 Purpose: Build a Wikipedia page retrieval system for Jeopardy clues using Whoosh.
 """
 
@@ -277,3 +277,133 @@ def is_correct_at_1(results, answer_variants):
     # normalize the top page
     normalized_top_title = normalize_answer(top_title)
     return normalized_top_title in normalized_answers
+
+def evaluate(index_dir, questions_path, out_path, top_k=10, use_category=True):
+    """Run the system on all questions and print the evaluation scores."""
+    ix = index.open_dir(index_dir)
+    questions = read_questions(questions_path)
+
+    rows = []
+    correct = 0
+    rr_sum = 0.0
+
+    for qnum, q in enumerate(questions, start=1):
+        # Search the index for the current clue.
+        results = search_one(
+            ix,
+            q["category"],
+            q["clue"],
+            top_k=top_k,
+            use_category=use_category,
+        )
+
+        # Save the top result if the search returned anything.
+        if len(results) > 0:
+            top_title = results[0][0]
+            top_score = results[0][1]   
+        else:
+            top_title = ""
+            top_score = 0.0
+
+        # Check if the top result matches one of the accepted answers.
+        c_at_1 = is_correct_at_1(results, q["answer_variants"])
+
+        # Find how highly the correct answer ranked in the top results.
+        rr = reciprocal_rank(results, q["answer_variants"])
+
+        if c_at_1:
+            correct += 1
+        rr_sum += rr
+
+        # Store this question's result for the output CSV file.
+        rows.append({
+            "question_number": qnum,
+            "category": q["category"],
+            "clue": q["clue"],
+            "gold_answer": q["answer"],
+            "predicted_title": top_title,
+            "top_score": round(top_score, 4),
+            "correct_at_1": c_at_1,
+            "reciprocal_rank_top_10": rr,
+            "top_10_titles": " | ".join(title for title, _ in results),
+        })
+
+    # Calculate final evaluation scores.
+    if len(questions) > 0:
+        p_at_1 = correct / len(questions)
+        mrr = rr_sum / len(questions)
+    else:
+        p_at_1 = 0.0
+        mrr = 0.0
+
+    # Write all question results to a CSV file.
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        fieldnames = list(rows[0].keys()) if rows else []
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"Questions evaluated: {len(questions)}")
+    print(f"Correct @ 1: {correct}")
+    print(f"Incorrect @ 1: {len(questions) - correct}")
+    print(f"P@1: {p_at_1:.4f}")
+    print(f"MRR@{top_k}: {mrr:.4f}")
+    print(f"Wrote results to: {out_path}")
+
+def predict(index_dir, category, clue, top_k=10, use_category=True):
+    """Search for one clue and print the top results."""
+    ix = index.open_dir(index_dir)
+    results = search_one(ix, category, clue, top_k=top_k, use_category=use_category)
+
+    # Print each result with its rank and score.
+    for rank, (title, score) in enumerate(results, start=1):
+        print(f"{rank}. {title}\t{score:.4f}")
+
+def main():
+    """Read command-line arguments and run the selected command."""
+    parser = argparse.ArgumentParser(description="Jeopardy Wikipedia QA retrieval system")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    index_parser = subparsers.add_parser("index", help="Build the Wikipedia index")
+    index_parser.add_argument("--wiki", required=True, help="Path to one wiki file or folder of wiki files")
+    index_parser.add_argument("--index", required=True, help="Output index directory")
+    index_parser.add_argument("--keep-existing", action="store_true", help="Do not delete an existing index first")
+
+    eval_parser = subparsers.add_parser("evaluate", help="Evaluate on questions.txt")
+    eval_parser.add_argument("--questions", required=True, help="Path to questions.txt")
+    eval_parser.add_argument("--index", required=True, help="Whoosh index directory")
+    eval_parser.add_argument("--out", default="results.csv", help="CSV output file")
+    eval_parser.add_argument("--top-k", type=int, default=10, help="Number of retrieved pages to save")
+    eval_parser.add_argument("--no-category", action="store_true", help="Do not include the category in the query")
+
+    predict_parser = subparsers.add_parser("predict", help="Predict one Jeopardy answer")
+    predict_parser.add_argument("--index", required=True, help="Whoosh index directory")
+    predict_parser.add_argument("--category", required=True, help="Jeopardy category")
+    predict_parser.add_argument("--clue", required=True, help="Jeopardy clue")
+    predict_parser.add_argument("--top-k", type=int, default=10)
+    predict_parser.add_argument("--no-category", action="store_true")
+
+    args = parser.parse_args()
+
+    # Build the index if the command is index.
+    if args.command == "index":
+        build_index(args.wiki, args.index, recreate=not args.keep_existing)
+    elif args.command == "evaluate":
+        evaluate(
+            args.index,
+            args.questions,
+            args.out,
+            top_k=args.top_k,
+            use_category=not args.no_category,
+        )
+    elif args.command == "predict":
+        predict(
+            args.index,
+            args.category,
+            args.clue,
+            top_k=args.top_k,
+            use_category=not args.no_category,
+        )
+
+if __name__ == "__main__":
+    main()
